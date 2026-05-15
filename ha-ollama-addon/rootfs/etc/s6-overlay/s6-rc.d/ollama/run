@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# s6-overlay service script for Ollama.
+#
+# Execution order:
+#   1. Read add-on options from /data/options.json (written by the Supervisor)
+#   2. Export Ollama environment variables
+#   3. Start the Ollama server in the background (so we can pull models after)
+#   4. Wait until the API is ready
+#   5. Pull each configured model if not already present
+#   6. Keep s6 happy by exec-ing into a wait loop (s6 expects the script
+#      to stay in the foreground while the service is running)
+
+set -euo pipefail
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+log()  { echo "[ha-ollama] $*"; }
+err()  { echo "[ha-ollama] ERROR: $*" >&2; }
+
+OPTIONS="/data/options.json"
+
+option() {
+    # Read a key from options.json, fallback to $2 if absent
+    local key="$1" default="${2:-}"
+    if [[ -f "$OPTIONS" ]]; then
+        val=$(jq -r --arg k "$key" '.[$k] // empty' "$OPTIONS" 2>/dev/null || true)
+        echo "${val:-$default}"
+    else
+        echo "$default"
+    fi
+}
+
+# ── Read options ──────────────────────────────────────────────────────────────
+DATA_DIR=$(option "data_dir" "/data/ollama")
+KEEP_ALIVE=$(option "keep_alive" "5m")
+MAX_LOADED=$(option "max_loaded_models" "1")
+GPU_LAYERS=$(option "gpu_layers" "0")
+NUM_THREADS=$(option "num_threads" "4")
+
+# models is a JSON array — convert to a bash array
+mapfile -t MODELS < <(
+    jq -r '.models[]' "$OPTIONS" 2>/dev/null || true
+)
+
+# ── Environment variables understood by Ollama ────────────────────────────────
+export OLLAMA_MODELS="$DATA_DIR/models"
+export OLLAMA_HOST="0.0.0.0:11434"
+export OLLAMA_KEEP_ALIVE="$KEEP_ALIVE"
+export OLLAMA_MAX_LOADED_MODELS="$MAX_LOADED"
+export OLLAMA_NUM_PARALLEL="1"
+
+# CPU thread count
+export OLLAMA_NUM_THREAD="$NUM_THREADS"
+
+# GPU layers (0 = CPU-only inference)
+if [[ "$GPU_LAYERS" -gt 0 ]]; then
+    export OLLAMA_GPU_LAYERS="$GPU_LAYERS"
+    log "GPU layers enabled: $GPU_LAYERS"
+else
+    # Disable GPU to avoid confusing logs on CPU-only machines
+    export OLLAMA_NO_CUDA=1
+    export OLLAMA_NO_GPU=1
+fi
+
+# ── Create data directory ─────────────────────────────────────────────────────
+mkdir -p "$OLLAMA_MODELS"
+log "Model storage: $OLLAMA_MODELS"
+
+# ── Start Ollama server ───────────────────────────────────────────────────────
+log "Starting Ollama server on $OLLAMA_HOST ..."
+ollama serve &
+OLLAMA_PID=$!
+
+# ── Wait for the API to be ready (max 60 s) ───────────────────────────────────
+log "Waiting for Ollama API to become available..."
+for i in $(seq 1 60); do
+    if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+        log "Ollama API ready after ${i}s"
+        break
+    fi
+    if [[ $i -eq 60 ]]; then
+        err "Ollama API did not start within 60 seconds — aborting"
+        kill "$OLLAMA_PID" 2>/dev/null || true
+        exit 1
+    fi
+    sleep 1
+done
+
+# ── Pull configured models if not already present ────────────────────────────
+if [[ ${#MODELS[@]} -eq 0 ]]; then
+    log "No models configured — skipping pull"
+else
+    for model in "${MODELS[@]}"; do
+        log "Checking model: $model"
+
+        # Ask Ollama if the model is already available locally
+        if ollama list 2>/dev/null | grep -q "^${model}"; then
+            log "  ✓ already present"
+        else
+            log "  ↓ pulling $model (this may take several minutes)..."
+            if ollama pull "$model"; then
+                log "  ✓ $model pulled successfully"
+            else
+                err "  Failed to pull $model — continuing with other models"
+            fi
+        fi
+    done
+fi
+
+log "Ollama is ready. Loaded models: $(ollama list 2>/dev/null | tail -n +2 | awk '{print $1}' | tr '\n' ' ')"
+
+# ── Hand control back to s6 by waiting on the server process ─────────────────
+# s6 expects the run script to stay alive as long as the service is running.
+wait "$OLLAMA_PID"

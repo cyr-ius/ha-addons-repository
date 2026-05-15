@@ -1,0 +1,12 @@
+---
+# Home Assistant Add-on Repository manifest.
+#
+# This file is read by the HA Supervisor when a user adds this repository URL.
+# It describes the repository and lists the add-ons it contains.
+#
+# Repository URL to share with users:
+#   https://github.com/cyr-ius/ha-addons-repository
+
+name: "Local LLM for Home Assistant"
+url: "https://github.com/cyr-ius/ha-addons-repository"
+maintainer: "Cyr-ius <cyr-ius@ipocus.net>"

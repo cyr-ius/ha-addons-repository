@@ -1,0 +1,51 @@
+---
+name: "LLM Wrapper for Home Assistant"
+description: "Exposes a local LLM (via Ollama) as a conversation agent compatible with the HA Assist pipeline."
+version: "1.0.0"
+slug: "ha_llm_wrapper"
+init: false
+arch:
+  - amd64
+  - aarch64
+
+# Port exposed to HA internals (Ingress + direct call from custom component)
+ports:
+  8080/tcp: null
+
+ports_description:
+  8080/tcp: "LLM Wrapper API (OpenAI-compatible)"
+
+# Options configurable from the HA Supervisor UI
+options:
+  ollama_host: "http://homeassistant.local:11434"
+  model: "llama3"
+  max_tokens: 1024
+  context_window: 8192
+  ha_token: ""
+  ha_url: "http://supervisor/core"
+  system_prompt: >
+    You are a smart home assistant controlling Home Assistant.
+    You have access to tools to read sensor states and call services.
+    Always respond in the same language as the user.
+    Be concise and confirm every action you take.
+
+schema:
+  ollama_host: str
+  model: str
+  max_tokens: int
+  context_window: int
+  ha_token: str
+  ha_url: str
+  system_prompt: str
+
+# Requires access to the HA Supervisor API
+hassio_api: true
+hassio_role: manager
+
+# Long-lived token injected automatically by the Supervisor
+homeassistant_api: true
+
+map:
+  - config:rw
+
+image: "ghcr.io/cyr-ius/ha-llm-wrapper-{arch}"

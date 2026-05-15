@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# s6-overlay finish script — called when the run script exits or is killed.
+# Gracefully stops the Ollama server if it is still running.
+
+set -euo pipefail
+
+log() { echo "[ha-ollama] $*"; }
+
+log "Stopping Ollama server..."
+
+# Send SIGTERM to any running ollama process
+pkill -TERM -x ollama 2>/dev/null || true
+
+# Give it 5 seconds to terminate cleanly before s6 sends SIGKILL
+sleep 5
+
+log "Ollama stopped."

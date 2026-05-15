@@ -1,0 +1,49 @@
+---
+name: "Ollama"
+description: >
+  Runs a local Ollama instance inside Home Assistant.
+  Exposes an OpenAI-compatible API on port 11434 so the LLM Wrapper
+  add-on (or any other integration) can use local LLM models.
+version: "1.0.0"
+slug: "ha_ollama"
+init: false
+
+arch:
+  - amd64
+  - aarch64
+
+ports:
+  11434/tcp: 11434
+
+ports_description:
+  11434/tcp: "Ollama API (OpenAI-compatible)"
+
+# User-configurable options visible in the Supervisor UI
+options:
+  models:
+    - "llama3.2"
+  keep_alive: "5m"
+  max_loaded_models: 1
+  gpu_layers: 0           # 0 = CPU only; > 0 requires GPU passthrough
+  num_threads: 4
+  data_dir: "/data/ollama"
+
+schema:
+  models:
+    - str
+  keep_alive: str
+  max_loaded_models: int
+  gpu_layers: int
+  num_threads: int
+  data_dir: str
+
+# Ollama models can be several GB — allow large storage
+map:
+  - data:rw
+
+# Give access to the Supervisor API for bashio helpers
+hassio_api: true
+
+# Ollama needs significant RAM for LLM inference
+# These are soft recommendations shown in the Supervisor UI
+image: "ghcr.io/cyr-ius/ha-ollama-{arch}"
