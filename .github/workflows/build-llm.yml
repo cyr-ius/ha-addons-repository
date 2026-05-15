@@ -6,7 +6,7 @@ on:
     branches:
       - main
     tags:
-      - "llm-[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+"
     paths:
       - "ha-llm-addon/**"
       - ".github/workflows/build-llm.yml"
@@ -96,8 +96,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             BUILD_FROM=${{ matrix.build_from }}
-          cache-from: type=gha,scope=llm-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=llm-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
   manifest:
     name: Push multi-arch manifest
