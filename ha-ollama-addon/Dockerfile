@@ -5,7 +5,7 @@ FROM $BUILD_FROM
 ARG TARGETARCH
 
 # Ollama release to install — must match DEFAULT_OLLAMA_VERSION in build-ollama.yml
-ARG OLLAMA_VERSION="0.3.14"
+ARG OLLAMA_VERSION="0.24.0"
 
 # curl: download, ca-certificates: HTTPS, bash+jq: s6 scripts
 RUN apk add --no-cache curl ca-certificates bash jq
