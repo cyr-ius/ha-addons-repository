@@ -1,0 +1,265 @@
+---
+# Generic build workflow — discovers every ha-* addon directory that contains
+# a build.yaml and a config.yaml, then builds and pushes multi-arch images.
+#
+# Addon configuration is read entirely from the addon directory:
+#   build.yaml  → build_from.<arch>   : base image per architecture
+#                 args                : extra Docker build args (optional)
+#   config.yaml → version            : image tag pushed to GHCR
+#                 image              : image name template (uses {arch} placeholder)
+
+name: Build & publish add-on images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ha-*/**"
+      - ".github/workflows/build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "ha-*/**"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+    inputs:
+      addon:
+        description: "Addon to build (e.g. ha-ollama). Empty = all."
+        required: false
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Discover all addon directories and build the job matrices.
+  # --------------------------------------------------------------------------
+  prepare:
+    name: Prepare matrices
+    runs-on: ubuntu-latest
+    outputs:
+      build_matrix:    ${{ steps.matrix.outputs.build }}
+      manifest_matrix: ${{ steps.matrix.outputs.manifest }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build matrices from addon directories
+        id: matrix
+        run: |
+          python3 - <<'EOF'
+          import yaml, os, json
+          from pathlib import Path
+
+          PLATFORM_MAP = {
+              'amd64':   'linux/amd64',
+              'aarch64': 'linux/arm64',
+              'armv7':   'linux/arm/v7',
+              'armhf':   'linux/arm/v6',
+              'i386':    'linux/386',
+          }
+
+          filter_addon = '${{ inputs.addon }}'
+
+          build_entries    = []
+          manifest_entries = []
+
+          for p in sorted(Path('.').glob('ha-*')):
+              if not p.is_dir():
+                  continue
+              if not (p / 'config.yaml').exists() or not (p / 'build.yaml').exists():
+                  continue
+              if filter_addon and p.name != filter_addon:
+                  continue
+
+              with open(p / 'build.yaml') as f:
+                  build = yaml.safe_load(f)
+
+              manifest_entries.append({'addon': p.name})
+
+              for arch, platform in PLATFORM_MAP.items():
+                  if arch not in build.get('build_from', {}):
+                      continue
+                  build_entries.append({
+                      'addon':    p.name,
+                      'arch':     arch,
+                      'platform': platform,
+                  })
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as gh:
+              gh.write(f"build={json.dumps({'include': build_entries})}\n")
+              gh.write(f"manifest={json.dumps({'include': manifest_entries})}\n")
+          EOF
+
+  # --------------------------------------------------------------------------
+  # Build one image per addon × arch combination.
+  # --------------------------------------------------------------------------
+  build:
+    name: ${{ matrix.addon }} / ${{ matrix.arch }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.build_matrix) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read addon metadata
+        id: addon
+        run: |
+          python3 - <<'EOF'
+          import yaml, os
+
+          addon = '${{ matrix.addon }}'
+          arch  = '${{ matrix.arch }}'
+
+          with open(f'{addon}/build.yaml') as f:
+              build = yaml.safe_load(f)
+          with open(f'{addon}/config.yaml') as f:
+              config = yaml.safe_load(f)
+
+          # Image base: strip the "-{arch}" suffix from the config.yaml image field
+          image_base = config['image'].replace('-{arch}', '').replace('_{arch}', '')
+
+          # Build args: seul BUILD_FROM est injecté par le workflow.
+          # Les args supplémentaires de build.yaml sont ajoutés s'ils existent.
+          version = str(config['version'])
+          lines = [f"BUILD_FROM={build['build_from'][arch]}"]
+          for k, v in build.get('args', {}).items():
+              lines.append(f'{k}={v}')
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f"version={version}\n")
+              out.write(f"image_base={image_base}\n")
+              out.write("build_args<<BARGS\n")
+              out.write('\n'.join(lines) + '\n')
+              out.write("BARGS\n")
+          EOF
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ matrix.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.addon.outputs.image_base }}-${{ matrix.arch }}
+          tags: |
+            type=raw,value=${{ steps.addon.outputs.version }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=pr
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.addon }}
+          file: ${{ matrix.addon }}/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ steps.addon.outputs.build_args }}
+          cache-from: type=gha,scope=${{ matrix.addon }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.addon }}-${{ matrix.arch }}
+
+  # --------------------------------------------------------------------------
+  # Assemble the multi-arch manifest for each addon.
+  # --------------------------------------------------------------------------
+  manifest:
+    name: Manifest ${{ matrix.addon }}
+    needs: [prepare, build]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.manifest_matrix) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read addon metadata
+        id: addon
+        run: |
+          python3 - <<'EOF'
+          import yaml, os, json
+
+          addon = '${{ matrix.addon }}'
+
+          with open(f'{addon}/build.yaml') as f:
+              build = yaml.safe_load(f)
+          with open(f'{addon}/config.yaml') as f:
+              config = yaml.safe_load(f)
+
+          image_base = config['image'].replace('-{arch}', '').replace('_{arch}', '')
+          arches     = list(build.get('build_from', {}).keys())
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f"image_base={image_base}\n")
+              out.write(f"version={config['version']}\n")
+              out.write(f"arches={json.dumps(arches)}\n")
+          EOF
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create and push manifest
+        env:
+          IMAGE_BASE: ${{ steps.addon.outputs.image_base }}
+          VERSION:    ${{ steps.addon.outputs.version }}
+          ARCHES:     ${{ steps.addon.outputs.arches }}
+          ON_MAIN:    ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          python3 - <<'EOF'
+          import subprocess, json, os
+
+          image_base = os.environ['IMAGE_BASE']
+          version    = os.environ['VERSION']
+          arches     = json.loads(os.environ['ARCHES'])
+          on_main    = os.environ['ON_MAIN'] == 'true'
+
+          arch_images = [f'{image_base}-{arch}:{version}' for arch in arches]
+          tags = [version] + (['latest'] if on_main else [])
+
+          for tag in tags:
+              manifest = f'{image_base}:{tag}'
+              subprocess.run(
+                  ['docker', 'buildx', 'imagetools', 'create', '--tag', manifest]
+                  + arch_images,
+                  check=True,
+              )
+              print(f'Pushed manifest: {manifest}')
+          EOF
+
+      - name: Inspect manifest
+        run: |
+          docker buildx imagetools inspect \
+            "${{ steps.addon.outputs.image_base }}:${{ steps.addon.outputs.version }}"

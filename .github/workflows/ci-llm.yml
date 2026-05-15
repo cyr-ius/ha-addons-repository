@@ -8,13 +8,13 @@ on:
       - "feature/**"
       - "fix/**"
     paths:
-      - "ha-llm-addon/**"
+      - "ha-llm/**"
       - ".github/workflows/ci-llm.yml"
   pull_request:
     branches:
       - main
     paths:
-      - "ha-llm-addon/**"
+      - "ha-llm/**"
       - ".github/workflows/ci-llm.yml"
 
 concurrency:
@@ -40,13 +40,13 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install ruff
-          pip install -r ha-llm-addon/requirements.txt
+          pip install -r ha-llm/requirements.txt
 
       - name: Run Ruff linter
-        run: ruff check ha-llm-addon/app/ --config ha-llm-addon/ruff.toml --output-format=github
+        run: ruff check ha-llm/app/ --config ha-llm/ruff.toml --output-format=github
 
       - name: Run Ruff formatter check
-        run: ruff format ha-llm-addon/app/ --config ha-llm-addon/ruff.toml --check
+        run: ruff format ha-llm/app/ --config ha-llm/ruff.toml --check
 
   validate-config:
     name: Validate config.yaml
@@ -76,7 +76,7 @@ jobs:
               "arch", "options", "schema",
           ]
 
-          with open("ha-llm-addon/config.yaml") as f:
+          with open("ha-llm/config.yaml") as f:
               config = yaml.safe_load(f)
 
           errors = []
@@ -115,7 +115,7 @@ jobs:
   test:
     name: Unit tests
     runs-on: ubuntu-latest
-    if: hashFiles('ha-llm-addon/tests/**/*.py') != ''
+    if: hashFiles('ha-llm/tests/**/*.py') != ''
 
     steps:
       - name: Checkout
@@ -130,7 +130,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r ha-llm-addon/requirements.txt
+          pip install -r ha-llm/requirements.txt
           pip install pytest pytest-asyncio httpx
 
       - name: Run tests
@@ -138,4 +138,4 @@ jobs:
           HA_LLM_OLLAMA_HOST: "http://localhost:11434"
           HA_LLM_HA_URL: "http://localhost:8123"
           HA_LLM_HA_TOKEN: "test-token"
-        run: pytest ha-llm-addon/tests/ -v --tb=short
+        run: pytest ha-llm/tests/ -v --tb=short
