@@ -4,7 +4,7 @@ description: >
   Runs a local Ollama instance inside Home Assistant.
   Exposes an OpenAI-compatible API on port 11434 so the LLM Wrapper
   add-on (or any other integration) can use local LLM models.
-version: "1.0.0"
+version: "0.24.0"
 slug: "ha_ollama"
 init: false
 
