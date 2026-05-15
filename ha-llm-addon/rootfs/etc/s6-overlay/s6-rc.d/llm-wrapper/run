@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# s6-overlay service script for HA LLM Wrapper.
+#
+# Execution order:
+#   1. Read add-on options from /data/options.json (written by the Supervisor)
+#   2. Export settings as HA_LLM_* env vars (read by pydantic-settings)
+#   3. Use SUPERVISOR_TOKEN as ha_token fallback if not set in options
+#   4. exec into uvicorn — s6 tracks the uvicorn PID directly
+
+set -euo pipefail
+
+log() { echo "[ha-llm] $*"; }
+
+OPTIONS="/data/options.json"
+
+option() {
+    local key="$1" default="${2:-}"
+    if [[ -f "$OPTIONS" ]]; then
+        val=$(jq -r --arg k "$key" '.[$k] // empty' "$OPTIONS" 2>/dev/null || true)
+        echo "${val:-$default}"
+    else
+        echo "$default"
+    fi
+}
+
+# ── Read options ──────────────────────────────────────────────────────────────
+OLLAMA_HOST=$(option "ollama_host"   "http://homeassistant.local:11434")
+MODEL=$(option        "model"         "llama3")
+MAX_TOKENS=$(option   "max_tokens"    "1024")
+CTX_WINDOW=$(option   "context_window" "8192")
+HA_TOKEN=$(option     "ha_token"      "")
+HA_URL=$(option       "ha_url"        "http://supervisor/core")
+SYSTEM_PROMPT=$(option "system_prompt" "")
+
+# ── Export as HA_LLM_* for pydantic-settings ─────────────────────────────────
+export HA_LLM_OLLAMA_HOST="$OLLAMA_HOST"
+export HA_LLM_MODEL="$MODEL"
+export HA_LLM_MAX_TOKENS="$MAX_TOKENS"
+export HA_LLM_CONTEXT_WINDOW="$CTX_WINDOW"
+export HA_LLM_HA_URL="$HA_URL"
+export HA_LLM_SYSTEM_PROMPT="$SYSTEM_PROMPT"
+
+# SUPERVISOR_TOKEN is injected automatically by the HA Supervisor.
+# Use it as ha_token when the user has not set one in the options.
+if [[ -z "$HA_TOKEN" && -n "${SUPERVISOR_TOKEN:-}" ]]; then
+    export HA_LLM_HA_TOKEN="$SUPERVISOR_TOKEN"
+else
+    export HA_LLM_HA_TOKEN="$HA_TOKEN"
+fi
+
+log "Starting LLM Wrapper — model=$MODEL, ollama=$OLLAMA_HOST, ha=$HA_URL"
+
+cd /app
+
+exec python3 -m uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port 8080 \
+    --log-level info

@@ -22,7 +22,6 @@ ports_description:
 options:
   models:
     - "llama3"
-    - "mistral"
   keep_alive: "5m"
   max_loaded_models: 1
   gpu_layers: 0           # 0 = CPU only; > 0 requires GPU passthrough

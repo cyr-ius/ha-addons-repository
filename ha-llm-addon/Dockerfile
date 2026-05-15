@@ -1,4 +1,4 @@
-ARG BUILD_FROM
+ARG BUILD_FROM="ghcr.io/home-assistant/base:latest"
 FROM $BUILD_FROM
 
 # Install Python 3 and pip
@@ -13,10 +13,10 @@ RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 # Copy application source
 COPY app/ ./app/
 
-# Copy s6-overlay service scripts
+# Copy s6-overlay service scripts (run/finish must be executable)
 COPY rootfs/ /
+RUN chmod a+x \
+    /etc/s6-overlay/s6-rc.d/llm-wrapper/run \
+    /etc/s6-overlay/s6-rc.d/llm-wrapper/finish
 
-# Expose the API port
 EXPOSE 8080
-
-CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# s6-overlay finish script — called when the run script exits or is killed.
+
+set -euo pipefail
+
+echo "[ha-llm] LLM Wrapper stopped."
