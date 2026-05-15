@@ -3,12 +3,11 @@
 # shellcheck shell=bash
 
 # ── Read options via bashio ───────────────────────────────────────────────────
-DATA_DIR=$(bashio::config  'data_dir'          '/data/ollama')
-KEEP_ALIVE=$(bashio::config 'keep_alive'       '5m')
+DATA_DIR=$(bashio::config  'data_dir'           '/data/ollama')
+KEEP_ALIVE=$(bashio::config 'keep_alive'        '5m')
 MAX_LOADED=$(bashio::config 'max_loaded_models' '1')
 GPU_LAYERS=$(bashio::config 'gpu_layers'        '0')
 NUM_THREADS=$(bashio::config 'num_threads'      '4')
-MODELS=$(bashio::config 'models'                 '')
 
 # ── Environment variables understood by Ollama ────────────────────────────────
 export OLLAMA_MODELS="$DATA_DIR/models"
@@ -18,11 +17,11 @@ export OLLAMA_MAX_LOADED_MODELS="$MAX_LOADED"
 export OLLAMA_NUM_PARALLEL="1"
 export OLLAMA_NUM_THREAD="$NUM_THREADS"
 
-if [[ "$GPU_LAYERS" -gt 0 ]]; then  
+if [[ "$GPU_LAYERS" -gt 0 ]]; then
     export OLLAMA_GPU_LAYERS="$GPU_LAYERS"
     bashio::log.info "GPU layers enabled: ${GPU_LAYERS}"
 else
-    export OLLAMA_NO_CUDA=1 
+    export OLLAMA_NO_CUDA=1
     export OLLAMA_NO_GPU=1
 fi
 
@@ -51,10 +50,10 @@ for i in $(seq 1 60); do
 done
 
 # ── Pull configured models if not already present ─────────────────────────────
-if [ ${MODELS} -eq "" ]; then
+if ! bashio::config.has_value 'models'; then
     bashio::log.info "No models configured — skipping pull"
 else
-    for model in "${MODELS[@]}"; do
+    for model in $(bashio::config 'models[]'); do
         bashio::log.info "Checking model: ${model}"
         if ollama list 2>/dev/null | grep -q "^${model}"; then
             bashio::log.info "  already present"
