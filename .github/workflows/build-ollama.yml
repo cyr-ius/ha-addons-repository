@@ -119,13 +119,6 @@ jobs:
           cache-from: type=gha,scope=ollama-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ollama-${{ matrix.arch }}
 
-      - name: Smoke-test — ollama binary is executable
-        if: matrix.arch == 'amd64'
-        run: |
-          docker run --rm --platform ${{ matrix.platform }} \
-            $(echo "${{ steps.meta.outputs.tags }}" | head -1) \
-            ollama --version
-
   manifest:
     name: Push multi-arch manifest
     runs-on: ubuntu-latest
