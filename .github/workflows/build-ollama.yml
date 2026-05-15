@@ -101,7 +101,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=ollama-${{ needs.resolve-version.outputs.ollama_version }},enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ needs.resolve-version.outputs.ollama_version }},enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=pr
 
       - name: Build and push ${{ matrix.arch }}
@@ -116,8 +116,8 @@ jobs:
           build-args: |
             BUILD_FROM=${{ matrix.build_from }}
             OLLAMA_VERSION=${{ needs.resolve-version.outputs.ollama_version }}
-          cache-from: type=gha,scope=ollama-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=ollama-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
   manifest:
     name: Push multi-arch manifest
