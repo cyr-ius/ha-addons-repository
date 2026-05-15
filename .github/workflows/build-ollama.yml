@@ -1,14 +1,4 @@
 ---
-# Build and push the Ollama add-on multi-arch images to GHCR.
-#
-# Key difference from the LLM Wrapper workflow:
-#   The Ollama binary is architecture-specific and downloaded at build time.
-#   Docker Buildx sets TARGETARCH automatically (amd64 / arm64), which the
-#   Dockerfile uses to pick the correct release asset from GitHub.
-#
-# OLLAMA_VERSION can be overridden at workflow dispatch to upgrade Ollama
-# without changing the Dockerfile.
-
 name: Build & publish Ollama add-on images
 
 on:
@@ -16,10 +6,16 @@ on:
     branches:
       - main
     tags:
-      - "[0-9]+.[0-9]+.[0-9]+"
+      - "ollama-[0-9]+.[0-9]+.[0-9]+"
+    paths:
+      - "ha-ollama-addon/**"
+      - ".github/workflows/build-ollama.yml"
   pull_request:
     branches:
       - main
+    paths:
+      - "ha-ollama-addon/**"
+      - ".github/workflows/build-ollama.yml"
   workflow_dispatch:
     inputs:
       ollama_version:
@@ -34,14 +30,9 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_BASE: ${{ github.repository_owner }}/ha-ollama
-  # Default Ollama version — overridden by workflow_dispatch input or
-  # by the OLLAMA_VERSION env var set in repository variables.
   DEFAULT_OLLAMA_VERSION: "0.3.14"
 
 jobs:
-  # --------------------------------------------------------------------------
-  # Resolve the Ollama version to embed.
-  # --------------------------------------------------------------------------
   resolve-version:
     name: Resolve Ollama version
     runs-on: ubuntu-latest
@@ -52,7 +43,6 @@ jobs:
       - name: Determine Ollama version
         id: version
         run: |
-          # Priority: workflow_dispatch input > repository variable > default
           VERSION="${{ inputs.ollama_version }}"
           if [[ -z "$VERSION" ]]; then
             VERSION="${{ vars.OLLAMA_VERSION }}"
@@ -63,9 +53,6 @@ jobs:
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Using Ollama version: $VERSION"
 
-  # --------------------------------------------------------------------------
-  # Build one image per architecture.
-  # --------------------------------------------------------------------------
   build:
     name: Build ${{ matrix.arch }}
     runs-on: ubuntu-latest
@@ -114,15 +101,14 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            # Include Ollama version in the tag for traceability
             type=raw,value=ollama-${{ needs.resolve-version.outputs.ollama_version }},enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=pr
 
       - name: Build and push ${{ matrix.arch }}
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: Dockerfile
+          context: ha-ollama-addon
+          file: ha-ollama-addon/Dockerfile
           platforms: ${{ matrix.platform }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -130,21 +116,16 @@ jobs:
           build-args: |
             BUILD_FROM=${{ matrix.build_from }}
             OLLAMA_VERSION=${{ needs.resolve-version.outputs.ollama_version }}
-          # Separate cache scope per arch — avoids cross-contamination
           cache-from: type=gha,scope=ollama-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ollama-${{ matrix.arch }}
 
-      # Verify the binary works inside the built image
       - name: Smoke-test — ollama binary is executable
-        if: matrix.arch == 'amd64'   # skip arm64: QEMU too slow for this
+        if: matrix.arch == 'amd64'
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
             $(echo "${{ steps.meta.outputs.tags }}" | head -1) \
             ollama --version
 
-  # --------------------------------------------------------------------------
-  # Multi-arch manifest
-  # --------------------------------------------------------------------------
   manifest:
     name: Push multi-arch manifest
     runs-on: ubuntu-latest
@@ -191,10 +172,6 @@ jobs:
           docker buildx imagetools inspect \
             "${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}:${{ steps.tag.outputs.value }}"
 
-  # --------------------------------------------------------------------------
-  # Notify the LLM Wrapper repository to rebuild when a new Ollama is out.
-  # Requires a PAT secret named CROSS_REPO_TOKEN with workflow:write scope.
-  # --------------------------------------------------------------------------
   notify-wrapper:
     name: Trigger LLM Wrapper rebuild
     runs-on: ubuntu-latest
@@ -202,20 +179,14 @@ jobs:
     if: github.ref_type == 'tag' && github.event_name != 'pull_request'
 
     steps:
-      - name: Dispatch build event to LLM Wrapper repo
+      - name: Dispatch build event to LLM Wrapper workflow
         env:
-          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Only runs if the secret is set — fails silently otherwise
-          if [[ -z "$GH_TOKEN" ]]; then
-            echo "CROSS_REPO_TOKEN not set — skipping cross-repo dispatch"
-            exit 0
-          fi
-
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
-            /repos/${{ github.repository_owner }}/ha-llm-addon/actions/workflows/build.yml/dispatches \
+            /repos/${{ github.repository }}/actions/workflows/build-llm.yml/dispatches \
             -f ref=main \
             -f "inputs[reason]=new_ollama_release" \
             -f "inputs[ollama_version]=${{ github.ref_name }}"
