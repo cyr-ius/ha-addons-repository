@@ -1,4 +1,4 @@
-ARG BUILD_FROM
+ARG BUILD_FROM="ghcr.io/home-assistant/base-ubuntu:latest"
 ARG VERSION="0.24.0"
 
 FROM ollama/ollama:${VERSION} AS ollama
