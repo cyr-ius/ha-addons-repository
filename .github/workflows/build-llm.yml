@@ -49,15 +49,30 @@ jobs:
         include:
           - arch: amd64
             platform: linux/amd64
-            build_from: ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.19
 
           - arch: aarch64
             platform: linux/arm64
-            build_from: ghcr.io/home-assistant/aarch64-base-python:3.12-alpine3.19
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read build.yaml and config.yaml
+        id: addon
+        run: |
+          python3 - <<'EOF'
+          import yaml, os
+
+          with open('ha-llm-addon/build.yaml') as f:
+              build = yaml.safe_load(f)
+          with open('ha-llm-addon/config.yaml') as f:
+              config = yaml.safe_load(f)
+
+          arch = '${{ matrix.arch }}'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f"build_from={build['build_from'][arch]}\n")
+              out.write(f"version={config['version']}\n")
+          EOF
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -81,7 +96,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}-${{ matrix.arch }}
           tags: |
-            type=semver,pattern={{version}}
+            type=raw,value=${{ steps.addon.outputs.version }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=pr
 
@@ -95,7 +110,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            BUILD_FROM=${{ matrix.build_from }}
+            BUILD_FROM=${{ steps.addon.outputs.build_from }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
