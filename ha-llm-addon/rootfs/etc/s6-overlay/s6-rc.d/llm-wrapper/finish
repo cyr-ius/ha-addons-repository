@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# s6-overlay finish script — called when the run script exits or is killed.
+# shellcheck source=/dev/null
+source /usr/lib/bashio/bashio.sh
 
-set -euo pipefail
-
-echo "[ha-llm] LLM Wrapper stopped."
+bashio::log.info "LLM Wrapper stopped."
