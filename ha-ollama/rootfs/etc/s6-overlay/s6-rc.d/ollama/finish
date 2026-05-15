@@ -1,6 +1,6 @@
-#!/usr/bin/env bash
-# shellcheck source=/dev/null
-source /usr/lib/bashio/bashio.sh
+#!/command/with-contenv bashio
+# vim: ft=bash
+# shellcheck shell=bash
 
 bashio::log.info "Stopping Ollama server..."
 
