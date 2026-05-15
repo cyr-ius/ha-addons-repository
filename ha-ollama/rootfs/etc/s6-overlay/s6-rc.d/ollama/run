@@ -1,6 +1,6 @@
-#!/usr/bin/env bash
-# shellcheck source=/dev/null
-source /usr/lib/bashio/bashio.sh
+#!/usr/bin/with-contenv bashio
+# vim: ft=bash
+# shellcheck shell=bash
 
 # ── Read options via bashio ───────────────────────────────────────────────────
 DATA_DIR=$(bashio::config  'data_dir'          '/data/ollama')
