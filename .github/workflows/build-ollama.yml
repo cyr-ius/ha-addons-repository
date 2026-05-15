@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       ollama_version:
-        description: "Ollama version to embed (e.g. 0.3.14)"
+        description: "Ollama version to embed"
         required: false
         default: ""
 
@@ -30,7 +30,7 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_BASE: ${{ github.repository_owner }}/ha-ollama
-  DEFAULT_OLLAMA_VERSION: "0.3.14"
+  DEFAULT_OLLAMA_VERSION: "0.24.0"
 
 jobs:
   resolve-version:
